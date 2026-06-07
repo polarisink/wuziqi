@@ -34,9 +34,16 @@ scripts\package-windows-exe.bat
 
 ## GitHub Actions
 
-推送到 `main` / `master` 分支或推送 `v*` 标签后，会自动通过 GitHub Actions 分别在 macOS 和 Windows runner 上使用 `jpackage` 打包：
+推送代码后，会自动通过 GitHub Actions 分别在 macOS 和 Windows runner 上使用 `jpackage` 打包：
 
 - `wuziqi-macos-dmg`：macOS `.dmg`
 - `wuziqi-windows-exe`：Windows `.exe`
+
+推送 `v*` 版本标签时，还会自动创建 GitHub Release，并把 `.dmg` / `.exe` 上传到 Release 附件中。例如：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
 
 也可以在 Actions 页面手动运行 `Package desktop installers` workflow。

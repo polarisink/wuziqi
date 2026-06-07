@@ -36,15 +36,6 @@ mvnd -DskipTests package
 mvnd -DincludeScope=runtime dependency:copy-dependencies -DoutputDirectory="$PACKAGE_INPUT_DIR/lib"
 cp "target/$MAIN_JAR" "$PACKAGE_INPUT_DIR/$MAIN_JAR"
 
-RUNTIME_CLASSPATH=""
-for jar in "$PACKAGE_INPUT_DIR"/lib/*.jar; do
-  if [[ -z "$RUNTIME_CLASSPATH" ]]; then
-    RUNTIME_CLASSPATH="lib/$(basename "$jar")"
-  else
-    RUNTIME_CLASSPATH="$RUNTIME_CLASSPATH:lib/$(basename "$jar")"
-  fi
-done
-
 "$JPACKAGE" \
   --type dmg \
   --name "$APP_NAME" \
@@ -54,7 +45,6 @@ done
   --input "$PACKAGE_INPUT_DIR" \
   --main-jar "$MAIN_JAR" \
   --main-class "$MAIN_CLASS" \
-  --class-path "$RUNTIME_CLASSPATH" \
   --java-options "-Dfile.encoding=UTF-8"
 
 echo "Created macOS DMG in $DIST_DIR"

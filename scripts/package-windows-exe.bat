@@ -55,15 +55,6 @@ if errorlevel 1 exit /b 1
 copy "target\%MAIN_JAR%" "%PACKAGE_INPUT_DIR%\%MAIN_JAR%" >nul
 if errorlevel 1 exit /b 1
 
-set RUNTIME_CLASSPATH=
-for %%F in ("%PACKAGE_INPUT_DIR%\lib\*.jar") do (
-    if "!RUNTIME_CLASSPATH!"=="" (
-        set RUNTIME_CLASSPATH=lib\%%~nxF
-    ) else (
-        set RUNTIME_CLASSPATH=!RUNTIME_CLASSPATH!;lib\%%~nxF
-    )
-)
-
 "%JPACKAGE%" ^
   --type exe ^
   --name "%APP_NAME%" ^
@@ -73,7 +64,6 @@ for %%F in ("%PACKAGE_INPUT_DIR%\lib\*.jar") do (
   --input "%PACKAGE_INPUT_DIR%" ^
   --main-jar "%MAIN_JAR%" ^
   --main-class "%MAIN_CLASS%" ^
-  --class-path "%RUNTIME_CLASSPATH%" ^
   --win-menu ^
   --win-shortcut ^
   --java-options "-Dfile.encoding=UTF-8"
