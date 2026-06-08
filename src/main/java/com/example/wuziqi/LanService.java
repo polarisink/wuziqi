@@ -5,8 +5,10 @@ import javafx.application.Platform;
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.InterfaceAddress;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
@@ -132,11 +134,11 @@ public final class LanService {
         }
 
         byte[] data = LanMessage.hello(localPeerId, username(), tcpPort).encode().getBytes(StandardCharsets.UTF_8);
-        try (DatagramSocket socket = new DatagramSocket()) {
-            socket.setBroadcast(true);
-            socket.send(new DatagramPacket(data, data.length, InetAddress.getByName("255.255.255.255"), DISCOVERY_PORT));
-        } catch (IOException error) {
-            error.printStackTrace(System.err);
+
+        // 多网卡机器不能只发 255.255.255.255，因为系统可能把广播发到 Wi-Fi，
+        // 而不是接着另一台电脑的有线网卡。这里枚举每张可用网卡，向各自的广播地址发送。
+        for (BroadcastTarget target : broadcastTargets()) {
+            sendPresenceToTarget(data, target);
         }
     }
 
@@ -229,6 +231,70 @@ public final class LanService {
         notifyPeersChanged();
     }
 
+    /** 计算所有应该发送 HELLO 的广播目标。 */
+    private List<BroadcastTarget> broadcastTargets() {
+        List<BroadcastTarget> targets = new ArrayList<>();
+
+        try {
+            var interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface networkInterface = interfaces.nextElement();
+                if (!networkInterface.isUp() || networkInterface.isLoopback()) {
+                    continue;
+                }
+
+                collectInterfaceBroadcastTargets(targets, networkInterface);
+            }
+        } catch (SocketException error) {
+            error.printStackTrace(System.err);
+        }
+
+        // 兜底目标保留全局广播，适配少数拿不到网卡广播地址的系统。
+        targets.add(new BroadcastTarget(null, allHostsBroadcastAddress()));
+        return targets;
+    }
+
+    /** 从一张网卡上收集 IPv4 广播地址。 */
+    private void collectInterfaceBroadcastTargets(List<BroadcastTarget> targets, NetworkInterface networkInterface) {
+        for (InterfaceAddress interfaceAddress : networkInterface.getInterfaceAddresses()) {
+            InetAddress localAddress = interfaceAddress.getAddress();
+            InetAddress broadcastAddress = interfaceAddress.getBroadcast();
+            if (localAddress == null || broadcastAddress == null || localAddress.isLoopbackAddress()) {
+                continue;
+            }
+
+            targets.add(new BroadcastTarget(localAddress, broadcastAddress));
+        }
+    }
+
+    /** 向指定网卡的广播地址发送一次 HELLO。 */
+    private void sendPresenceToTarget(byte[] data, BroadcastTarget target) {
+        try (DatagramSocket socket = createBroadcastSocket(target.localAddress())) {
+            socket.setBroadcast(true);
+            socket.send(new DatagramPacket(data, data.length, target.broadcastAddress(), DISCOVERY_PORT));
+        } catch (IOException error) {
+            error.printStackTrace(System.err);
+        }
+    }
+
+    /** 绑定本地网卡地址可以让 UDP 广播从指定网卡发出去。 */
+    private DatagramSocket createBroadcastSocket(InetAddress localAddress) throws SocketException {
+        if (localAddress == null) {
+            return new DatagramSocket();
+        }
+
+        return new DatagramSocket(new InetSocketAddress(localAddress, 0));
+    }
+
+    /** 获取 255.255.255.255 兜底广播地址。 */
+    private InetAddress allHostsBroadcastAddress() {
+        try {
+            return InetAddress.getByName("255.255.255.255");
+        } catch (IOException error) {
+            throw new IllegalStateException("无法创建广播地址", error);
+        }
+    }
+
     /** 清理长时间没有广播的玩家。 */
     private void prunePeers() {
         boolean changed;
@@ -293,8 +359,9 @@ public final class LanService {
 
     /** 处理别人发来的邀请。被邀请方执白棋。 */
     private LanMessage handleInvite(LanMessage invite, InetAddress address) {
-        PeerInfo peer = findPeer(invite.peerId())
-                .orElseGet(() -> new PeerInfo(invite.peerId(), invite.username(), address, invite.port(), Instant.now()));
+        // 邀请连接来自哪个 IP，就用哪个 IP 建立会话。多网卡时缓存里的发现地址可能过期或来自另一张网卡。
+        PeerInfo peer = new PeerInfo(invite.peerId(), invite.username(), address, invite.port(), Instant.now());
+        rememberPeer(peer);
 
         if (listener.confirmInvite(peer)) {
             Platform.runLater(() -> listener.onInviteAccepted(peer, WHITE));
@@ -304,11 +371,13 @@ public final class LanService {
         return LanMessage.decline(localPeerId);
     }
 
-    /** 根据玩家 ID 从缓存里查找玩家。 */
-    private Optional<PeerInfo> findPeer(String peerId) {
+    /** 把玩家写入缓存，并通知 UI 刷新列表。 */
+    private void rememberPeer(PeerInfo peer) {
         synchronized (peers) {
-            return Optional.ofNullable(peers.get(peerId));
+            peers.put(peer.id(), peer);
         }
+
+        notifyPeersChanged();
     }
 
     /** 发送一条短 TCP 消息，并读取对方响应。 */
@@ -347,5 +416,9 @@ public final class LanService {
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    /** 一次 UDP 广播要使用的本地网卡地址和目标广播地址。 */
+    private record BroadcastTarget(InetAddress localAddress, InetAddress broadcastAddress) {
     }
 }
