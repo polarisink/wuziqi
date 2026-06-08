@@ -1,0 +1,16 @@
+Manifest-Version: 1.0
+Created-By: Maven JAR Plugin 3.4.2
+Build-Jdk-Spec: 25
+Class-Path: lib/fxgl-25.jar lib/javafx-fxml-25.0.1.jar lib/javafx-fxml-2
+ 5.0.1-mac-aarch64.jar lib/javafx-controls-25.0.1.jar lib/javafx-control
+ s-25.0.1-mac-aarch64.jar lib/fxgl-core-25.jar lib/javafx-graphics-25.0.
+ 1.jar lib/javafx-graphics-25.0.1-mac-aarch64.jar lib/javafx-base-25.0.1
+ .jar lib/javafx-base-25.0.1-mac-aarch64.jar lib/javafx-media-25.0.1.jar
+  lib/javafx-media-25.0.1-mac-aarch64.jar lib/audio-4.0.24.jar lib/fxgl-
+ io-25.jar lib/storage-4.0.24.jar lib/util-4.0.24.jar lib/fxgl-entity-25
+ .jar lib/fxgl-scene-25.jar lib/fxgl-gameplay-25.jar lib/jackson-annotat
+ ions-2.19.4.jar lib/jackson-databind-2.19.4.jar lib/jackson-core-2.19.4
+ .jar lib/lifecycle-4.0.24.jar lib/kotlin-stdlib-2.3.0.jar lib/annotatio
+ ns-13.0.jar
+Main-Class: com.example.wuziqi.WuziqiApp
+

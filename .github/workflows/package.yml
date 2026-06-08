@@ -16,8 +16,20 @@ env:
 
 jobs:
   package-macos-dmg:
-    name: macOS DMG
-    runs-on: macos-latest
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Apple Silicon DMG
+            runner: macos-latest
+            artifact: wuziqi-macos-arm64-dmg
+            asset_suffix: macos-arm64
+          - name: macOS Intel DMG
+            runner: macos-15-intel
+            artifact: wuziqi-macos-x64-dmg
+            asset_suffix: macos-x64
 
     steps:
       - name: Checkout
@@ -59,15 +71,20 @@ jobs:
             --main-class "$MAIN_CLASS" \
             --java-options "-Dfile.encoding=UTF-8"
 
+      - name: Rename DMG
+        shell: bash
+        run: |
+          mv target/dist/macos/*.dmg "target/dist/macos/${APP_NAME}-${APP_VERSION}-${{ matrix.asset_suffix }}.dmg"
+
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: wuziqi-macos-dmg
+          name: ${{ matrix.artifact }}
           path: target/dist/macos/*.dmg
           if-no-files-found: error
 
   package-windows-exe:
-    name: Windows EXE
+    name: Windows x64 EXE
     runs-on: windows-latest
 
     steps:
@@ -128,10 +145,20 @@ jobs:
             --win-shortcut `
             --java-options "-Dfile.encoding=UTF-8"
 
+      - name: Rename EXE
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem target\dist\windows -Filter *.exe | Select-Object -First 1
+          if ($null -eq $installer) {
+            throw "Windows installer was not created."
+          }
+
+          Rename-Item $installer.FullName "$env:APP_NAME-$env:APP_VERSION-windows-x64.exe"
+
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
-          name: wuziqi-windows-exe
+          name: wuziqi-windows-x64-exe
           path: target/dist/windows/*.exe
           if-no-files-found: error
 
