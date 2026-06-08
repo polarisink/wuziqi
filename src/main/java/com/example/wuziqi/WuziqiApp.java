@@ -2,62 +2,55 @@ package com.example.wuziqi;
 
 import com.almasb.fxgl.app.GameApplication;
 import com.almasb.fxgl.app.GameSettings;
-import com.almasb.fxgl.logging.ConsoleOutput;
-import com.almasb.fxgl.logging.FileOutput;
-import com.almasb.fxgl.logging.Logger;
-import com.almasb.fxgl.logging.LoggerConfig;
-import com.almasb.fxgl.logging.LoggerLevel;
-import javafx.geometry.Point2D;
-import javafx.scene.Cursor;
-import javafx.scene.Parent;
+import javafx.application.Platform;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
-import javafx.scene.input.MouseButton;
-import javafx.scene.layout.Pane;
+import javafx.scene.control.ListView;
+import javafx.scene.control.TextField;
+import javafx.scene.image.Image;
 import javafx.scene.paint.Color;
-import javafx.scene.shape.Circle;
-import javafx.scene.shape.Line;
-import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
+import java.util.Optional;
 
 import static com.almasb.fxgl.dsl.FXGL.addUINode;
+import static com.almasb.fxgl.dsl.FXGL.getPrimaryStage;
 
-public class WuziqiApp extends GameApplication {
+/**
+ * FXGL 应用入口。
+ *
+ * <p>这个类主要做“组装”：把棋盘模型、AI、棋盘视图和局域网服务连起来。
+ * 具体规则和网络细节已经拆到其他类里，主类只处理用户操作和界面状态。</p>
+ */
+public class WuziqiApp extends GameApplication implements LanService.Listener {
 
-    private static final int BOARD_SIZE = 20;
-    private static final int EMPTY = 0;
-    private static final int BLACK = 1;
-    private static final int WHITE = 2;
-    private static final int HUMAN_PLAYER = BLACK;
-    private static final int AI_PLAYER = WHITE;
-
+    private static final int HUMAN_PLAYER = BoardState.BLACK;
+    private static final int AI_PLAYER = BoardState.WHITE;
     private static final int WINDOW_WIDTH = 900;
     private static final int WINDOW_HEIGHT = 780;
-    private static final double BOARD_PIXEL_SIZE = 680;
     private static final double BOARD_X = 40;
     private static final double BOARD_Y = 60;
 
-    private final int[][] board = new int[BOARD_SIZE][BOARD_SIZE];
+    private final BoardState board = new BoardState();
+    private final AiPlayer aiPlayer = new AiPlayer();
+
     private BoardView boardView;
     private Label statusLabel;
-    private int currentPlayer = BLACK;
-    private boolean gameOver;
+    private Label networkStatusLabel;
+    private TextField usernameField;
+    private ListView<PeerInfo> peerListView;
+    private LanService lanService;
+    private NetworkSession networkSession;
     private GameMode gameMode = GameMode.TWO_PLAYER;
-    private final Random random = new Random();
+    private int currentPlayer = BoardState.BLACK;
+    private boolean gameOver;
 
+    /** 配置游戏窗口和 FXGL 基础行为。 */
     @Override
     protected void initSettings(GameSettings settings) {
         settings.setWidth(WINDOW_WIDTH);
@@ -66,38 +59,30 @@ public class WuziqiApp extends GameApplication {
         settings.setVersion("1.0");
         settings.setMainMenuEnabled(false);
         settings.setGameMenuEnabled(false);
+        // FXGL 默认会写相对路径 logs/；打包后安装目录可能不可写，所以关闭它。
         settings.setFileSystemWriteAllowed(false);
     }
 
+    /** 创建棋盘视图，并把棋盘点击事件绑定到 placeStone。 */
     @Override
     protected void initGame() {
-        boardView = new BoardView();
+        // 只设置操作系统窗口图标；不要使用 settings.setAppIcon(...)，避免 FXGL 把图标资源画进游戏界面。
+        // FXGL 的 initGame 可能在后台线程执行，窗口图标属于 JavaFX UI 对象，必须切回 UI 线程。
+        Platform.runLater(() -> getPrimaryStage().getIcons().setAll(new Image(WuziqiApp.class.getResourceAsStream("/assets/textures/wuziqi-icon.png"))));
+        boardView = new BoardView(this::placeStone);
         addUINode(boardView, BOARD_X, BOARD_Y);
     }
 
+    /** 创建右侧控制区，包括模式、用户名、局域网玩家列表等。 */
     @Override
     protected void initUI() {
-        Label title = new Label("五子棋");
-        title.setTextFill(Color.web("#1F2937"));
-        title.setFont(Font.font("PingFang SC", FontWeight.BOLD, 32));
-        addUINode(title, 760, 70);
+        addLabel("五子棋", 760, 70, "#1F2937", FontWeight.BOLD, 32);
+        addLabel("20 x 20", 766, 112, "#6B7280", FontWeight.SEMI_BOLD, 18);
 
-        Label boardInfo = new Label("20 x 20");
-        boardInfo.setTextFill(Color.web("#6B7280"));
-        boardInfo.setFont(Font.font("PingFang SC", FontWeight.SEMI_BOLD, 18));
-        addUINode(boardInfo, 766, 112);
-
-        statusLabel = new Label();
-        statusLabel.setTextFill(Color.web("#111827"));
-        statusLabel.setFont(Font.font("PingFang SC", FontWeight.BOLD, 20));
+        statusLabel = addLabel("", 760, 170, "#111827", FontWeight.BOLD, 20);
         statusLabel.setMinWidth(120);
-        addUINode(statusLabel, 760, 170);
 
-        Label modeTitle = new Label("对局模式");
-        modeTitle.setTextFill(Color.web("#374151"));
-        modeTitle.setFont(Font.font("PingFang SC", FontWeight.SEMI_BOLD, 16));
-        addUINode(modeTitle, 760, 222);
-
+        addLabel("对局模式", 760, 222, "#374151", FontWeight.SEMI_BOLD, 16);
         ComboBox<GameMode> modeSelector = new ComboBox<>();
         modeSelector.getItems().addAll(GameMode.values());
         modeSelector.setValue(gameMode);
@@ -114,102 +99,157 @@ public class WuziqiApp extends GameApplication {
         restartButton.setOnAction(event -> restartGame());
         addUINode(restartButton, 760, 310);
 
+        addNetworkControls();
+        startLanService();
         updateStatus();
     }
 
+    /** 创建局域网相关控件。 */
+    private void addNetworkControls() {
+        addLabel("用户名", 760, 370, "#374151", FontWeight.SEMI_BOLD, 14);
+        usernameField = new TextField(defaultUsername());
+        usernameField.setPrefWidth(120);
+        addUINode(usernameField, 760, 394);
+
+        addLabel("局域网玩家", 760, 435, "#374151", FontWeight.SEMI_BOLD, 14);
+        peerListView = new ListView<>();
+        peerListView.setPrefSize(120, 120);
+        addUINode(peerListView, 760, 460);
+
+        Button refreshPeersButton = new Button("刷新");
+        refreshPeersButton.setFont(Font.font("PingFang SC", FontWeight.SEMI_BOLD, 13));
+        refreshPeersButton.setPrefSize(56, 32);
+        refreshPeersButton.setOnAction(event -> refreshPeerList());
+        addUINode(refreshPeersButton, 760, 590);
+
+        Button inviteButton = new Button("邀请");
+        inviteButton.setFont(Font.font("PingFang SC", FontWeight.SEMI_BOLD, 13));
+        inviteButton.setPrefSize(56, 32);
+        inviteButton.setOnAction(event -> inviteSelectedPeer());
+        addUINode(inviteButton, 824, 590);
+
+        networkStatusLabel = addLabel("未联机", 760, 635, "#4B5563", FontWeight.SEMI_BOLD, 13);
+        networkStatusLabel.setMinWidth(120);
+    }
+
+    /** 创建统一样式的文字标签，减少重复代码。 */
+    private Label addLabel(String text, double x, double y, String color, FontWeight weight, double size) {
+        Label label = new Label(text);
+        label.setTextFill(Color.web(color));
+        label.setFont(Font.font("PingFang SC", weight, size));
+        addUINode(label, x, y);
+        return label;
+    }
+
+    /** 启动局域网服务，服务通过 LanService.Listener 回调本类。 */
+    private void startLanService() {
+        lanService = new LanService(this);
+        lanService.start();
+    }
+
+    /**
+     * 处理本地玩家点击棋盘。
+     *
+     * <p>普通双人/人机模式和局域网模式的落子限制不同，所以这里先分流。</p>
+     */
     private void placeStone(int row, int col) {
-        if (gameOver || board[row][col] != EMPTY || isWaitingForAi()) {
+        if (isNetworkGame()) {
+            placeNetworkStone(row, col);
             return;
         }
 
-        board[row][col] = currentPlayer;
-        boardView.drawStone(row, col, currentPlayer);
-
-        if (hasFiveInRow(row, col, currentPlayer)) {
-            gameOver = true;
-            statusLabel.setText(playerName(currentPlayer) + "胜利");
+        if (gameOver || !board.isEmpty(row, col) || isWaitingForAi()) {
             return;
         }
 
-        if (isBoardFull()) {
-            gameOver = true;
-            statusLabel.setText("平局");
-            return;
-        }
-
-        currentPlayer = currentPlayer == BLACK ? WHITE : BLACK;
-        updateStatus();
+        applyStone(row, col, currentPlayer);
+        finishTurn(row, col, currentPlayer, playerName(currentPlayer) + "胜利");
 
         if (isAiTurn()) {
             playAiTurn();
         }
     }
 
-    private boolean hasFiveInRow(int row, int col, int player) {
-        int[][] directions = {
-                {1, 0},
-                {0, 1},
-                {1, 1},
-                {1, -1}
-        };
-
-        for (int[] direction : directions) {
-            int count = 1
-                    + countStones(row, col, direction[0], direction[1], player)
-                    + countStones(row, col, -direction[0], -direction[1], player);
-
-            if (count >= 5) {
-                return true;
-            }
+    /** 局域网对战时，只允许轮到自己时落子，并把落子发送给对方。 */
+    private void placeNetworkStone(int row, int col) {
+        NetworkSession session = networkSession;
+        if (session == null || gameOver || !board.isEmpty(row, col) || currentPlayer != session.localPlayer()) {
+            return;
         }
 
-        return false;
+        applyStone(row, col, session.localPlayer());
+        lanService.sendMove(session, row, col);
+        finishTurn(row, col, session.localPlayer(), "你胜利");
     }
 
-    private int countStones(int row, int col, int rowStep, int colStep, int player) {
-        int count = 0;
-        int nextRow = row + rowStep;
-        int nextCol = col + colStep;
-
-        while (isInsideBoard(nextRow, nextCol) && board[nextRow][nextCol] == player) {
-            count++;
-            nextRow += rowStep;
-            nextCol += colStep;
+    /** 收到对方网络落子后，应用到本地棋盘。 */
+    private void applyRemoteMove(int row, int col) {
+        NetworkSession session = networkSession;
+        if (session == null || gameOver || !board.isInside(row, col) || !board.isEmpty(row, col)) {
+            return;
         }
 
-        return count;
+        int remotePlayer = session.localPlayer() == BoardState.BLACK ? BoardState.WHITE : BoardState.BLACK;
+        applyStone(row, col, remotePlayer);
+        finishTurn(row, col, remotePlayer, session.peerName() + "胜利");
     }
 
-    private boolean isInsideBoard(int row, int col) {
-        return row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE;
-    }
-
-    private boolean isBoardFull() {
-        for (int row = 0; row < BOARD_SIZE; row++) {
-            for (int col = 0; col < BOARD_SIZE; col++) {
-                if (board[row][col] == EMPTY) {
-                    return false;
-                }
-            }
+    /** 人机模式下让 AI 选择并执行一步。 */
+    private void playAiTurn() {
+        Move move = aiPlayer.chooseMove(board, gameMode, AI_PLAYER, HUMAN_PLAYER);
+        if (move == null || gameOver || !board.isEmpty(move.row(), move.col())) {
+            return;
         }
 
-        return true;
+        applyStone(move.row(), move.col(), AI_PLAYER);
+        finishTurn(move.row(), move.col(), AI_PLAYER, "电脑胜利");
     }
 
-    private void restartGame() {
-        for (int row = 0; row < BOARD_SIZE; row++) {
-            for (int col = 0; col < BOARD_SIZE; col++) {
-                board[row][col] = EMPTY;
-            }
+    /** 同时更新棋盘模型和棋盘视图，避免二者不同步。 */
+    private void applyStone(int row, int col, int player) {
+        board.place(row, col, player);
+        boardView.drawStone(row, col, player);
+    }
+
+    /** 每步结束后统一检查胜负、平局，并切换当前玩家。 */
+    private void finishTurn(int row, int col, int player, String winText) {
+        if (board.hasFiveInRow(row, col, player)) {
+            gameOver = true;
+            statusLabel.setText(winText);
+            return;
         }
 
-        currentPlayer = BLACK;
-        gameOver = false;
-        boardView.clearStones();
+        if (board.isFull()) {
+            gameOver = true;
+            statusLabel.setText("平局");
+            return;
+        }
+
+        currentPlayer = currentPlayer == BoardState.BLACK ? BoardState.WHITE : BoardState.BLACK;
         updateStatus();
     }
 
+    /** 清空当前对局。联机状态保留，只重置棋盘和回合。 */
+    private void restartGame() {
+        board.clear();
+        boardView.clearStones();
+        currentPlayer = BoardState.BLACK;
+        gameOver = false;
+        updateStatus();
+    }
+
+    /** 根据当前模式显示不同状态文案。 */
     private void updateStatus() {
+        if (isNetworkGame()) {
+            NetworkSession session = networkSession;
+            if (!gameOver) {
+                statusLabel.setText(currentPlayer == session.localPlayer()
+                        ? "轮到你：" + playerName(currentPlayer)
+                        : "等待：" + session.peerName());
+            }
+            return;
+        }
+
         if (isAiTurn()) {
             statusLabel.setText("电脑思考中");
             return;
@@ -218,428 +258,142 @@ public class WuziqiApp extends GameApplication {
         statusLabel.setText("轮到：" + playerName(currentPlayer));
     }
 
-    private String playerName(int player) {
-        return player == BLACK ? "黑棋" : "白棋";
-    }
-
+    /** AI 回合：当前是 AI 模式、轮到白棋、且游戏未结束。 */
     private boolean isAiTurn() {
-        return gameMode != GameMode.TWO_PLAYER && currentPlayer == AI_PLAYER && !gameOver;
+        return gameMode.isAiMode() && currentPlayer == AI_PLAYER && !gameOver;
     }
 
+    /** 防止玩家在 AI 回合继续点击落子。 */
     private boolean isWaitingForAi() {
-        return gameMode != GameMode.TWO_PLAYER && currentPlayer == AI_PLAYER;
+        return gameMode.isAiMode() && currentPlayer == AI_PLAYER;
     }
 
-    private void playAiTurn() {
-        Move move = switch (gameMode) {
-            case EASY -> chooseEasyMove();
-            case MEDIUM -> chooseBestMove(false);
-            case HARD -> chooseBestMove(true);
-            case TWO_PLAYER -> null;
-        };
+    /** 只有已经建立 NetworkSession 时，才算真正进入联机对局。 */
+    private boolean isNetworkGame() {
+        return gameMode == GameMode.LAN && networkSession != null;
+    }
 
-        if (move != null) {
-            placeAiStone(move.row(), move.col());
+    /** 把棋子常量转换成给玩家看的名字。 */
+    private String playerName(int player) {
+        return player == BoardState.BLACK ? "黑棋" : "白棋";
+    }
+
+    /** 主动广播一次并刷新当前缓存的玩家列表。 */
+    private void refreshPeerList() {
+        if (lanService != null) {
+            lanService.broadcastPresence();
+            peerListView.getItems().setAll(lanService.currentPeers());
         }
     }
 
-    private void placeAiStone(int row, int col) {
-        if (gameOver || board[row][col] != EMPTY) {
+    /** 邀请列表中选中的局域网玩家。 */
+    private void inviteSelectedPeer() {
+        PeerInfo peer = peerListView.getSelectionModel().getSelectedItem();
+        if (peer == null || lanService == null) {
+            onStatus("请选择玩家");
             return;
         }
 
-        board[row][col] = AI_PLAYER;
-        boardView.drawStone(row, col, AI_PLAYER);
+        onStatus("邀请 " + peer.username());
+        lanService.invite(peer);
+    }
 
-        if (hasFiveInRow(row, col, AI_PLAYER)) {
-            gameOver = true;
-            statusLabel.setText("电脑胜利");
-            return;
-        }
-
-        if (isBoardFull()) {
-            gameOver = true;
-            statusLabel.setText("平局");
-            return;
-        }
-
-        currentPlayer = HUMAN_PLAYER;
+    /** 接受或发起联机对局后，初始化联机棋盘状态。 */
+    private void acceptNetworkGame(PeerInfo peer, int localPlayer) {
+        networkSession = new NetworkSession(peer.id(), peer.username(), peer.address(), peer.tcpPort(), localPlayer);
+        gameMode = GameMode.LAN;
+        board.clear();
+        boardView.clearStones();
+        currentPlayer = BoardState.BLACK;
+        gameOver = false;
+        onStatus("联机：" + peer.username());
         updateStatus();
     }
 
-    private Move chooseEasyMove() {
-        List<Move> candidates = getCandidateMoves();
-        if (candidates.isEmpty()) {
-            return null;
+    /** LanService 读取用户名时会调用这个方法。 */
+    @Override
+    public String username() {
+        if (usernameField == null || usernameField.getText().isBlank()) {
+            return defaultUsername();
         }
 
-        return candidates.get(random.nextInt(candidates.size()));
+        return usernameField.getText().trim().replace("|", " ");
     }
 
-    private Move chooseBestMove(boolean useLookahead) {
-        List<Move> candidates = getCandidateMoves();
-        Move bestMove = null;
-        int bestScore = Integer.MIN_VALUE;
+    /** 网络线程收到邀请后，通过这个方法在 UI 上弹确认框。 */
+    @Override
+    public boolean confirmInvite(PeerInfo peer) {
+        final boolean[] accepted = {false};
+        final Object lock = new Object();
 
-        for (Move move : candidates) {
-            int score = scoreMove(move.row(), move.col(), AI_PLAYER)
-                    + scoreMove(move.row(), move.col(), HUMAN_PLAYER) * 9 / 10;
-
-            if (useLookahead) {
-                board[move.row()][move.col()] = AI_PLAYER;
-                score += evaluateBoardFor(AI_PLAYER) - evaluateBoardFor(HUMAN_PLAYER);
-                score -= bestReplyScore(HUMAN_PLAYER) * 7 / 10;
-                board[move.row()][move.col()] = EMPTY;
+        // Alert 必须在 JavaFX UI 线程里打开。
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+            alert.setTitle("局域网对战邀请");
+            alert.setHeaderText(peer.username() + " 邀请你对战");
+            alert.setContentText("接受后你执白棋，对方先手。");
+            Optional<ButtonType> result = alert.showAndWait();
+            synchronized (lock) {
+                accepted[0] = result.isPresent() && result.get() == ButtonType.OK;
+                lock.notifyAll();
             }
+        });
 
-            score += random.nextInt(useLookahead ? 3 : 12);
-
-            if (score > bestScore) {
-                bestScore = score;
-                bestMove = move;
-            }
-        }
-
-        return bestMove;
-    }
-
-    private int bestReplyScore(int player) {
-        int bestScore = 0;
-
-        for (Move move : getCandidateMoves()) {
-            bestScore = Math.max(bestScore, scoreMove(move.row(), move.col(), player));
-        }
-
-        return bestScore;
-    }
-
-    private List<Move> getCandidateMoves() {
-        List<Move> candidates = new ArrayList<>();
-        boolean hasStone = false;
-
-        for (int row = 0; row < BOARD_SIZE; row++) {
-            for (int col = 0; col < BOARD_SIZE; col++) {
-                if (board[row][col] != EMPTY) {
-                    hasStone = true;
-                    continue;
-                }
-
-                if (hasNeighbor(row, col, 2)) {
-                    candidates.add(new Move(row, col));
-                }
+        // 网络线程等待用户选择，最多等待 30 秒。
+        synchronized (lock) {
+            try {
+                lock.wait(30_000);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
             }
         }
 
-        if (!hasStone) {
-            candidates.add(new Move(BOARD_SIZE / 2, BOARD_SIZE / 2));
-        } else if (candidates.isEmpty()) {
-            for (int row = 0; row < BOARD_SIZE; row++) {
-                for (int col = 0; col < BOARD_SIZE; col++) {
-                    if (board[row][col] == EMPTY) {
-                        candidates.add(new Move(row, col));
-                    }
-                }
-            }
-        }
-
-        return candidates;
+        return accepted[0];
     }
 
-    private boolean hasNeighbor(int row, int col, int distance) {
-        for (int rowOffset = -distance; rowOffset <= distance; rowOffset++) {
-            for (int colOffset = -distance; colOffset <= distance; colOffset++) {
-                if (rowOffset == 0 && colOffset == 0) {
-                    continue;
-                }
-
-                int nextRow = row + rowOffset;
-                int nextCol = col + colOffset;
-                if (isInsideBoard(nextRow, nextCol) && board[nextRow][nextCol] != EMPTY) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
+    /** 在线玩家列表变化。 */
+    @Override
+    public void onPeersChanged(List<PeerInfo> peers) {
+        peerListView.getItems().setAll(peers);
     }
 
-    private int scoreMove(int row, int col, int player) {
-        if (board[row][col] != EMPTY) {
-            return 0;
-        }
-
-        board[row][col] = player;
-        int score = 0;
-        int[][] directions = {
-                {1, 0},
-                {0, 1},
-                {1, 1},
-                {1, -1}
-        };
-
-        for (int[] direction : directions) {
-            int count = 1
-                    + countStones(row, col, direction[0], direction[1], player)
-                    + countStones(row, col, -direction[0], -direction[1], player);
-            int openEnds = countOpenEnds(row, col, direction[0], direction[1], player);
-            score += scoreLine(count, openEnds);
-        }
-
-        board[row][col] = EMPTY;
-        return score;
+    /** 对方接受邀请后进入联机对局。 */
+    @Override
+    public void onInviteAccepted(PeerInfo peer, int localPlayer) {
+        acceptNetworkGame(peer, localPlayer);
     }
 
-    private int countOpenEnds(int row, int col, int rowStep, int colStep, int player) {
-        return isOpenEnd(row, col, rowStep, colStep, player)
-                + isOpenEnd(row, col, -rowStep, -colStep, player);
+    /** 收到对方落子。 */
+    @Override
+    public void onRemoteMove(int row, int col) {
+        applyRemoteMove(row, col);
     }
 
-    private int isOpenEnd(int row, int col, int rowStep, int colStep, int player) {
-        int nextRow = row + rowStep;
-        int nextCol = col + colStep;
-
-        while (isInsideBoard(nextRow, nextCol) && board[nextRow][nextCol] == player) {
-            nextRow += rowStep;
-            nextCol += colStep;
-        }
-
-        return isInsideBoard(nextRow, nextCol) && board[nextRow][nextCol] == EMPTY ? 1 : 0;
-    }
-
-    private int scoreLine(int count, int openEnds) {
-        if (count >= 5) {
-            return 1_000_000;
-        }
-        if (count == 4 && openEnds == 2) {
-            return 100_000;
-        }
-        if (count == 4 && openEnds == 1) {
-            return 15_000;
-        }
-        if (count == 3 && openEnds == 2) {
-            return 8_000;
-        }
-        if (count == 3 && openEnds == 1) {
-            return 1_000;
-        }
-        if (count == 2 && openEnds == 2) {
-            return 450;
-        }
-        if (count == 2 && openEnds == 1) {
-            return 80;
-        }
-        return Math.max(1, count * 10);
-    }
-
-    private int evaluateBoardFor(int player) {
-        int score = 0;
-
-        for (Move move : getCandidateMoves()) {
-            score += scoreMove(move.row(), move.col(), player) / 8;
-        }
-
-        return score;
-    }
-
-    private record Move(int row, int col) {
-    }
-
-    private enum GameMode {
-        TWO_PLAYER("双人对战"),
-        EASY("人机：简单"),
-        MEDIUM("人机：中等"),
-        HARD("人机：困难");
-
-        private final String label;
-
-        GameMode(String label) {
-            this.label = label;
-        }
-
-        @Override
-        public String toString() {
-            return label;
+    /** 显示网络状态。 */
+    @Override
+    public void onStatus(String status) {
+        if (networkStatusLabel != null) {
+            networkStatusLabel.setText(status);
         }
     }
 
+    /** 应用退出时停止网络后台线程。 */
+    @Override
+    protected void onExit() {
+        if (lanService != null) {
+            lanService.stop();
+        }
+    }
+
+    /** 默认用户名取系统登录名。 */
+    private String defaultUsername() {
+        String user = System.getProperty("user.name", "玩家");
+        return user == null || user.isBlank() ? "玩家" : user;
+    }
+
+    /** 程序入口：先安装日志，再交给 FXGL 启动。 */
     public static void main(String[] args) {
-        installDiagnostics();
+        AppDiagnostics.install();
         launch(args);
-    }
-
-    private static void installDiagnostics() {
-        try {
-            Path appDataDir = resolveAppDataDir();
-            Files.createDirectories(appDataDir);
-            System.setProperty("user.dir", appDataDir.toString());
-
-            Path logDir = resolveLogDir(appDataDir);
-            Files.createDirectories(logDir);
-            configureFxglLogging(logDir);
-
-            PrintStream logStream = new PrintStream(
-                    Files.newOutputStream(logDir.resolve("wuziqi.log")),
-                    true,
-                    StandardCharsets.UTF_8
-            );
-
-            System.setOut(new PrintStream(new TeeOutputStream(System.out, logStream), true, StandardCharsets.UTF_8));
-            System.setErr(new PrintStream(new TeeOutputStream(System.err, logStream), true, StandardCharsets.UTF_8));
-            Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
-                System.err.println("Uncaught exception on thread: " + thread.getName());
-                throwable.printStackTrace(System.err);
-            });
-
-            System.out.println("Wuziqi starting at " + LocalDateTime.now());
-            System.out.println("Java: " + System.getProperty("java.version"));
-            System.out.println("OS: " + System.getProperty("os.name") + " " + System.getProperty("os.version") + " " + System.getProperty("os.arch"));
-            System.out.println("App data dir: " + appDataDir);
-            System.out.println("FXGL user.dir: " + System.getProperty("user.dir"));
-            System.out.println("Log file: " + logDir.resolve("wuziqi.log"));
-        } catch (IOException | RuntimeException error) {
-            error.printStackTrace(System.err);
-        }
-    }
-
-    private static void configureFxglLogging(Path logDir) {
-        Logger.removeAllOutputs();
-        Logger.configure(new LoggerConfig());
-        Logger.addOutput(new ConsoleOutput(), LoggerLevel.DEBUG);
-        Logger.addOutput(new FileOutput("FXGL", logDir.toString()), LoggerLevel.DEBUG);
-    }
-
-    private static Path resolveAppDataDir() {
-        String osName = System.getProperty("os.name", "").toLowerCase();
-
-        if (osName.contains("win")) {
-            String localAppData = System.getenv("LOCALAPPDATA");
-            if (localAppData != null && !localAppData.isBlank()) {
-                return Path.of(localAppData, "Wuziqi");
-            }
-        }
-
-        if (osName.contains("mac")) {
-            return Path.of(System.getProperty("user.home"), "Library", "Application Support", "Wuziqi");
-        }
-
-        return Path.of(System.getProperty("user.home"), ".wuziqi");
-    }
-
-    private static Path resolveLogDir(Path appDataDir) {
-        String osName = System.getProperty("os.name", "").toLowerCase();
-
-        if (osName.contains("mac")) {
-            return Path.of(System.getProperty("user.home"), "Library", "Logs", "Wuziqi");
-        }
-
-        return appDataDir.resolve("logs");
-    }
-
-    private static final class TeeOutputStream extends OutputStream {
-
-        private final OutputStream first;
-        private final OutputStream second;
-
-        private TeeOutputStream(OutputStream first, OutputStream second) {
-            this.first = first;
-            this.second = second;
-        }
-
-        @Override
-        public void write(int value) throws IOException {
-            first.write(value);
-            second.write(value);
-        }
-
-        @Override
-        public void write(byte[] bytes, int offset, int length) throws IOException {
-            first.write(bytes, offset, length);
-            second.write(bytes, offset, length);
-        }
-
-        @Override
-        public void flush() throws IOException {
-            first.flush();
-            second.flush();
-        }
-
-        @Override
-        public void close() throws IOException {
-            first.close();
-            second.close();
-        }
-    }
-
-    private final class BoardView extends Parent {
-
-        private final Pane stoneLayer = new Pane();
-        private final double cellSize = BOARD_PIXEL_SIZE / (BOARD_SIZE - 1);
-
-        private BoardView() {
-            Pane boardLayer = new Pane();
-            Rectangle background = new Rectangle(BOARD_PIXEL_SIZE, BOARD_PIXEL_SIZE);
-            background.setArcWidth(10);
-            background.setArcHeight(10);
-            background.setFill(Color.web("#E6B85C"));
-            background.setStroke(Color.web("#8B5E1D"));
-            background.setStrokeWidth(2);
-            boardLayer.getChildren().add(background);
-
-            for (int i = 0; i < BOARD_SIZE; i++) {
-                double offset = i * cellSize;
-
-                Line horizontal = new Line(0, offset, BOARD_PIXEL_SIZE, offset);
-                horizontal.setStroke(Color.web("#3F2F1A"));
-                horizontal.setStrokeWidth(i == 0 || i == BOARD_SIZE - 1 ? 2 : 1);
-
-                Line vertical = new Line(offset, 0, offset, BOARD_PIXEL_SIZE);
-                vertical.setStroke(Color.web("#3F2F1A"));
-                vertical.setStrokeWidth(i == 0 || i == BOARD_SIZE - 1 ? 2 : 1);
-
-                boardLayer.getChildren().addAll(horizontal, vertical);
-            }
-
-            boardLayer.getChildren().addAll(
-                    starPoint(4, 4),
-                    starPoint(4, 15),
-                    starPoint(10, 10),
-                    starPoint(15, 4),
-                    starPoint(15, 15)
-            );
-
-            getChildren().addAll(boardLayer, stoneLayer);
-            setCursor(Cursor.HAND);
-            setOnMouseClicked(event -> {
-                if (event.getButton() != MouseButton.PRIMARY) {
-                    return;
-                }
-
-                Point2D point = new Point2D(event.getX(), event.getY());
-                int col = (int) Math.round(point.getX() / cellSize);
-                int row = (int) Math.round(point.getY() / cellSize);
-
-                if (isInsideBoard(row, col)) {
-                    placeStone(row, col);
-                }
-            });
-        }
-
-        private Circle starPoint(int row, int col) {
-            Circle point = new Circle(col * cellSize, row * cellSize, 4);
-            point.setFill(Color.web("#3F2F1A"));
-            return point;
-        }
-
-        private void drawStone(int row, int col, int player) {
-            Circle stone = new Circle(col * cellSize, row * cellSize, cellSize * 0.42);
-            stone.setFill(player == BLACK ? Color.web("#111827") : Color.web("#F9FAFB"));
-            stone.setStroke(player == BLACK ? Color.web("#030712") : Color.web("#9CA3AF"));
-            stone.setStrokeWidth(2);
-            stoneLayer.getChildren().add(stone);
-        }
-
-        private void clearStones() {
-            stoneLayer.getChildren().clear();
-        }
     }
 }

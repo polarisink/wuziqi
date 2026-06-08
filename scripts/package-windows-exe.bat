@@ -7,6 +7,7 @@ set MAIN_CLASS=com.example.wuziqi.WuziqiApp
 set MAIN_JAR=wuziqi-1.0-SNAPSHOT.jar
 set DIST_DIR=target\dist\windows
 set PACKAGE_INPUT_DIR=target\jpackage-input
+set ICON_PATH=src\main\resources\icons\wuziqi.ico
 
 if defined JAVA_HOME if exist "%JAVA_HOME%\bin\jpackage.exe" (
     set JPACKAGE=%JAVA_HOME%\bin\jpackage.exe
@@ -61,6 +62,7 @@ if errorlevel 1 exit /b 1
   --app-version "%APP_VERSION%" ^
   --vendor "FXGL" ^
   --dest "%DIST_DIR%" ^
+  --icon "%ICON_PATH%" ^
   --input "%PACKAGE_INPUT_DIR%" ^
   --main-jar "%MAIN_JAR%" ^
   --main-class "%MAIN_CLASS%" ^

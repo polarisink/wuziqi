@@ -7,6 +7,7 @@ MAIN_CLASS="com.example.wuziqi.WuziqiApp"
 MAIN_JAR="wuziqi-1.0-SNAPSHOT.jar"
 DIST_DIR="target/dist/macos"
 PACKAGE_INPUT_DIR="target/jpackage-input"
+ICON_PATH="src/main/resources/icons/wuziqi.icns"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "macOS DMG packages must be created on macOS." >&2
@@ -45,6 +46,7 @@ cp "target/$MAIN_JAR" "$PACKAGE_INPUT_DIR/$MAIN_JAR"
   --app-version "$APP_VERSION" \
   --vendor "FXGL" \
   --dest "$DIST_DIR" \
+  --icon "$ICON_PATH" \
   --input "$PACKAGE_INPUT_DIR" \
   --main-jar "$MAIN_JAR" \
   --main-class "$MAIN_CLASS" \
