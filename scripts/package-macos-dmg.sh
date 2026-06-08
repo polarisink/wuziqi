@@ -45,6 +45,7 @@ cp "target/$MAIN_JAR" "$PACKAGE_INPUT_DIR/$MAIN_JAR"
   --input "$PACKAGE_INPUT_DIR" \
   --main-jar "$MAIN_JAR" \
   --main-class "$MAIN_CLASS" \
+  --java-options "--enable-native-access=ALL-UNNAMED" \
   --java-options "-Dfile.encoding=UTF-8"
 
 echo "Created macOS DMG in $DIST_DIR"

@@ -48,3 +48,17 @@ git push origin v1.0.0
 ```
 
 也可以在 Actions 页面手动运行 `Package desktop installers` workflow。
+
+## 运行日志
+
+Windows 安装包启动时会打开控制台窗口，方便查看启动错误。应用日志会写入：
+
+```text
+%LOCALAPPDATA%\Wuziqi\logs\wuziqi.log
+```
+
+macOS 日志会写入：
+
+```text
+~/Library/Logs/Wuziqi/wuziqi.log
+```

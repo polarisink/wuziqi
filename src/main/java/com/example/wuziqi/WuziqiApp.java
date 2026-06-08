@@ -16,6 +16,14 @@ import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+
 import static com.almasb.fxgl.dsl.FXGL.addUINode;
 
 public class WuziqiApp extends GameApplication {
@@ -177,7 +185,87 @@ public class WuziqiApp extends GameApplication {
     }
 
     public static void main(String[] args) {
+        installDiagnostics();
         launch(args);
+    }
+
+    private static void installDiagnostics() {
+        try {
+            Path logDir = resolveLogDir();
+            Files.createDirectories(logDir);
+
+            PrintStream logStream = new PrintStream(
+                    Files.newOutputStream(logDir.resolve("wuziqi.log")),
+                    true,
+                    StandardCharsets.UTF_8
+            );
+
+            System.setOut(new PrintStream(new TeeOutputStream(System.out, logStream), true, StandardCharsets.UTF_8));
+            System.setErr(new PrintStream(new TeeOutputStream(System.err, logStream), true, StandardCharsets.UTF_8));
+            Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+                System.err.println("Uncaught exception on thread: " + thread.getName());
+                throwable.printStackTrace(System.err);
+            });
+
+            System.out.println("Wuziqi starting at " + LocalDateTime.now());
+            System.out.println("Java: " + System.getProperty("java.version"));
+            System.out.println("OS: " + System.getProperty("os.name") + " " + System.getProperty("os.version") + " " + System.getProperty("os.arch"));
+            System.out.println("Log file: " + logDir.resolve("wuziqi.log"));
+        } catch (IOException | RuntimeException error) {
+            error.printStackTrace(System.err);
+        }
+    }
+
+    private static Path resolveLogDir() {
+        String osName = System.getProperty("os.name", "").toLowerCase();
+
+        if (osName.contains("win")) {
+            String localAppData = System.getenv("LOCALAPPDATA");
+            if (localAppData != null && !localAppData.isBlank()) {
+                return Path.of(localAppData, "Wuziqi", "logs");
+            }
+        }
+
+        if (osName.contains("mac")) {
+            return Path.of(System.getProperty("user.home"), "Library", "Logs", "Wuziqi");
+        }
+
+        return Path.of(System.getProperty("user.home"), ".wuziqi", "logs");
+    }
+
+    private static final class TeeOutputStream extends OutputStream {
+
+        private final OutputStream first;
+        private final OutputStream second;
+
+        private TeeOutputStream(OutputStream first, OutputStream second) {
+            this.first = first;
+            this.second = second;
+        }
+
+        @Override
+        public void write(int value) throws IOException {
+            first.write(value);
+            second.write(value);
+        }
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) throws IOException {
+            first.write(bytes, offset, length);
+            second.write(bytes, offset, length);
+        }
+
+        @Override
+        public void flush() throws IOException {
+            first.flush();
+            second.flush();
+        }
+
+        @Override
+        public void close() throws IOException {
+            first.close();
+            second.close();
+        }
     }
 
     private final class BoardView extends Parent {

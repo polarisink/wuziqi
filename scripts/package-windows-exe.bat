@@ -64,8 +64,10 @@ if errorlevel 1 exit /b 1
   --input "%PACKAGE_INPUT_DIR%" ^
   --main-jar "%MAIN_JAR%" ^
   --main-class "%MAIN_CLASS%" ^
+  --win-console ^
   --win-menu ^
   --win-shortcut ^
+  --java-options "--enable-native-access=ALL-UNNAMED" ^
   --java-options "-Dfile.encoding=UTF-8"
 
 if errorlevel 1 exit /b 1
