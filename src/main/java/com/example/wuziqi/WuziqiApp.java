@@ -2,6 +2,11 @@ package com.example.wuziqi;
 
 import com.almasb.fxgl.app.GameApplication;
 import com.almasb.fxgl.app.GameSettings;
+import com.almasb.fxgl.logging.ConsoleOutput;
+import com.almasb.fxgl.logging.FileOutput;
+import com.almasb.fxgl.logging.Logger;
+import com.almasb.fxgl.logging.LoggerConfig;
+import com.almasb.fxgl.logging.LoggerLevel;
 import javafx.geometry.Point2D;
 import javafx.scene.Cursor;
 import javafx.scene.Parent;
@@ -61,6 +66,7 @@ public class WuziqiApp extends GameApplication {
         settings.setVersion("1.0");
         settings.setMainMenuEnabled(false);
         settings.setGameMenuEnabled(false);
+        settings.setFileSystemWriteAllowed(false);
     }
 
     @Override
@@ -469,6 +475,7 @@ public class WuziqiApp extends GameApplication {
 
             Path logDir = resolveLogDir(appDataDir);
             Files.createDirectories(logDir);
+            configureFxglLogging(logDir);
 
             PrintStream logStream = new PrintStream(
                     Files.newOutputStream(logDir.resolve("wuziqi.log")),
@@ -492,6 +499,13 @@ public class WuziqiApp extends GameApplication {
         } catch (IOException | RuntimeException error) {
             error.printStackTrace(System.err);
         }
+    }
+
+    private static void configureFxglLogging(Path logDir) {
+        Logger.removeAllOutputs();
+        Logger.configure(new LoggerConfig());
+        Logger.addOutput(new ConsoleOutput(), LoggerLevel.DEBUG);
+        Logger.addOutput(new FileOutput("FXGL", logDir.toString()), LoggerLevel.DEBUG);
     }
 
     private static Path resolveAppDataDir() {

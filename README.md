@@ -52,7 +52,7 @@ git push origin v1.0.0
 
 ## 运行日志
 
-Windows 安装包启动时会打开控制台窗口，方便查看启动错误。应用日志会写入：
+Windows 安装包启动时会打开控制台窗口，方便查看启动错误。应用日志和 FXGL 日志会写入：
 
 ```text
 %LOCALAPPDATA%\Wuziqi\logs\wuziqi.log

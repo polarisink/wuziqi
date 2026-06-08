@@ -8,22 +8,25 @@ MAIN_JAR="wuziqi-1.0-SNAPSHOT.jar"
 DIST_DIR="target/dist/macos"
 PACKAGE_INPUT_DIR="target/jpackage-input"
 
-if [[ -n "${JAVA_HOME:-}" && -x "$JAVA_HOME/bin/jpackage" ]]; then
-  JPACKAGE="$JAVA_HOME/bin/jpackage"
-elif command -v jpackage >/dev/null 2>&1; then
-  JPACKAGE="$(command -v jpackage)"
-else
-  echo "jpackage was not found. Please run this script with JDK 25+ on PATH or JAVA_HOME." >&2
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "macOS DMG packages must be created on macOS." >&2
   exit 1
 fi
+
+if command -v /usr/libexec/java_home >/dev/null 2>&1; then
+  JAVA_HOME="$(/usr/libexec/java_home -v 25)"
+fi
+
+if [[ -z "${JAVA_HOME:-}" || ! -x "$JAVA_HOME/bin/jpackage" ]]; then
+  echo "JDK 25 was not found. Please install JDK 25 or set JAVA_HOME to a valid JDK 25 home." >&2
+  exit 1
+fi
+
+export JAVA_HOME
+JPACKAGE="$JAVA_HOME/bin/jpackage"
 
 if ! command -v mvnd >/dev/null 2>&1; then
   echo "mvnd was not found. Please install mvnd or replace mvnd with mvn in this script." >&2
-  exit 1
-fi
-
-if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "macOS DMG packages must be created on macOS." >&2
   exit 1
 fi
 
